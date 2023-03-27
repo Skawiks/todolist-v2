@@ -1,0 +1,284 @@
+// ***** *** Require Packages: *** *****
+const express = require("express");
+const bodyParser = require("body-parser");
+const mongoose = require("mongoose");
+const _ = require("lodash");
+
+
+const app = express();
+
+app.set('view engine', 'ejs');
+
+app.use(bodyParser.urlencoded({extended: true}));
+app.use(express.static("public"));
+
+// *** Create a New Database inside MongoDB via Connecting mongoose: ***
+mongoose.connect("mongodb://localhost:27017/todolistDB");
+// mongoose.connect("mongodb://localhost:27017/todolistDB", {useNewUrlParser: true}); // ==> use this if deprect a warning
+
+// *** Create a Schema: ***
+const itemsSchema = {
+  name: String
+};
+
+// *** Create a Model: (usually Capitalized) ***
+const Item = mongoose.model("Item", itemsSchema);
+
+// *** Create a Mongoose Documents: ***
+const item1 = new Item({
+  name: "Welcome to your todolist!"
+});
+
+const item2 = new Item({
+  name: "Hit the + button to add a new item."
+});
+
+const item3 = new Item({
+  name: "<-- Hit this to delete an item."
+});
+
+const defaultItems = [item1, item2, item3];
+
+// *** Create a list Schema: ***
+const listSchema = {
+  name: String,
+  items: [itemsSchema]
+};
+
+// *** Create a list Model: ***
+const List = mongoose.model("list", listSchema);
+
+app.get("/", function(req, res) {
+  // *** Mongoose find() ***
+  Item.find({}, function(err, foundItems){
+
+    if (foundItems.length === 0) {
+      // *** Mongoose insertMany() ***
+      Item.insertMany(defaultItems, function(err){
+        if (err) {
+          console.log(err);
+        }
+        else{
+          console.log("Successfully saved default items to databse.");
+        }
+      });
+      res.redirect("/");
+    }
+    else{
+      res.render("list", {listTitle: "Today", newListItems: foundItems});
+    }
+  });
+});
+
+// *** Create a custom parameters Route: ***
+app.get("/:customListName", function(req, res){
+  const customListName = _.capitalize(req.params.customListName);
+
+  List.findOne({name: customListName}, function(err, foundList){
+
+    if (!err) {
+      if (!foundList) {
+        // *** Create a new list: ***
+        // *** Create a new Mongoose Document: ***
+        const list = new List({
+          name: customListName,
+          items: defaultItems
+        });
+
+        list.save();
+        res.redirect("/" + customListName);
+      }
+      else {
+        // *** Show an existing list: ***
+        res.render("list", {listTitle: foundList.name, newListItems: foundList.items});
+      }
+    }
+
+  });
+
+});
+
+app.post("/", function(req, res){
+  // *** Adding a New Item: ***
+  const itemName = req.body.newItem;
+  const listName = req.body.list.trim();
+
+  const item = new Item({
+    name: itemName
+  });
+
+  if (listName === "Today"){
+    // *** Save item to mongoose: ***
+    item.save();
+    // *** render item to home page: ***
+    res.redirect("/");
+  }
+  else {
+    List.findOne({name: listName}, function(err, foundList){
+      foundList.items.push(item);
+      foundList.save();
+      res.redirect("/" + listName);
+    });
+  }
+});
+
+app.post("/delete", function(req, res){
+  const checkedItemId = req.body.checkbox.trim();
+  const listName = req.body.listName.trim();
+
+  if (listName === "Today"){
+    Item.findByIdAndRemove(checkedItemId, function(err){
+      if (!err) {
+        // mongoose.connection.close();
+        console.log("Successfully deleted checked item.");
+        res.redirect("/");
+      }
+    });
+  }
+  else {
+    List.findOneAndUpdate({name: listName}, {$pull: {items: {_id: checkedItemId}}}, function(err, foundList){
+      if (!err) {
+        res.redirect("/" + listName);
+      }
+    });
+  }
+});
+
+
+app.get("/about", function(req, res){
+  res.render("about");
+});
+
+app.listen(3000, function() {
+  console.log("Server started on port 3000");
+});
+
+******************************* ******** list.ejs ******** **********************************
+
+<%- include("header") -%>
+
+  <div class="box" id="heading">
+    <h1> <%= listTitle %> </h1>
+  </div>
+
+  <div class="box">
+
+  <%  newListItems.forEach(function(item){ %>
+      <form action="/delete" method="post">
+        <div class="item">
+          <input type="checkbox" name="checkbox" value="<%= item._id %> " onChange="this.form.submit()">
+          <p>
+            <%= item.name %>
+          </p>
+        </div>
+        <input type="hidden" name="listName" value="<%= listTitle %>"></input>
+      </form>
+  <%  }); %>
+
+      <form class="item" action="/" method="post">
+        <input type="text" name="newItem" placeholder="New Item" autocomplete="off">
+        <button type="submit" name="list" value="<%= listTitle %> ">+</button>
+      </form>
+  </div>
+
+<%- include("footer") -%>
+
+
+******************************* ******** style.css ******** *********************************
+
+html {
+  background-color: #E4E9FD;
+  background-image: -webkit-linear-gradient(65deg, #A683E3 50%, #E4E9FD 50%);
+  min-height: 1000px;
+  font-family: 'helvetica neue', sans-serif;
+}
+
+h1 {
+  color: #fff;
+  padding: 10px;
+}
+
+.box {
+  max-width: 400px;
+  margin: 50px auto;
+  background: white;
+  border-radius: 5px;
+  box-shadow: 5px 5px 15px -5px rgba(0, 0, 0, 0.3);
+}
+
+#heading {
+  background-color: #A683E3;
+  text-align: center;
+}
+
+.item {
+  min-height: 70px;
+  display: flex;
+  align-items: center;
+  border-bottom: 1px solid #F1F1F1;
+}
+
+.item:last-child {
+  border-bottom: 0;
+}
+
+input:checked+p {
+  text-decoration: line-through;
+  text-decoration-color: #A683E3;
+}
+
+input[type="checkbox"] {
+  margin: 20px;
+}
+
+p {
+  margin: 0;
+  padding: 20px;
+  font-size: 20px;
+  font-weight: 200;
+  color: #00204a;
+}
+
+form.item {
+  text-align: center;
+  margin-left: 20px;
+}
+
+button {
+  min-height: 50px;
+  width: 50px;
+  border-radius: 50%;
+  border-color: transparent;
+  background-color: #A683E3;
+  color: #fff;
+  font-size: 30px;
+  padding-bottom: 6px;
+  border-width: 0;
+}
+
+input[type="text"] {
+  text-align: center;
+  height: 60px;
+  top: 10px;
+  border: none;
+  background: transparent;
+  font-size: 20px;
+  font-weight: 200;
+  width: 313px;
+}
+
+input[type="text"]:focus {
+  outline: none;
+  box-shadow: inset 0 -3px 0 0 #A683E3;
+}
+
+::placeholder {
+  color: grey;
+  opacity: 1;
+}
+
+footer {
+  color: white;
+  color: rgba(0, 0, 0, 0.5);
+  text-align: center;
+}
